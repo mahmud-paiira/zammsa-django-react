@@ -1,0 +1,65 @@
+from rest_framework import serializers
+from .models import Supplier, VendorApplication, VendorApplicationDocument, SupplierDocument, SupplierPerformance, SupplierRiskScore, Blacklist
+
+
+class SupplierDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierDocument
+        fields = '__all__'
+
+
+class SupplierPerformanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierPerformance
+        fields = '__all__'
+        read_only_fields = ('performance_id', 'needs_improvement')
+
+
+class SupplierRiskScoreSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierRiskScore
+        fields = '__all__'
+
+
+class SupplierListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Supplier
+        fields = ('supplier_id', 'registration_number', 'tin', 'name', 'ceec_category', 'status', 'risk_level', 'registered_at')
+
+
+class SupplierSerializer(serializers.ModelSerializer):
+    documents = SupplierDocumentSerializer(many=True, read_only=True)
+    performances = SupplierPerformanceSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Supplier
+        fields = '__all__'
+        read_only_fields = ('supplier_id', 'registered_at', 'updated_at')
+
+
+class VendorApplicationDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorApplicationDocument
+        fields = '__all__'
+        read_only_fields = ('document_id', 'uploaded_at')
+
+
+class VendorApplicationSerializer(serializers.ModelSerializer):
+    documents = VendorApplicationDocumentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = VendorApplication
+        fields = '__all__'
+        read_only_fields = ('application_id', 'submitted_at', 'created_at', 'updated_at', 'pacra_validated', 'ceec_validated')
+
+
+class VendorApplicationListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorApplication
+        fields = ('application_id', 'company_name', 'registration_number', 'ceec_category', 'status', 'submitted_at', 'email', 'contact_person')
+
+
+class BlacklistSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Blacklist
+        fields = '__all__'

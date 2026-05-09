@@ -1,0 +1,27 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.ContractListView.as_view(), name='contract-list'),
+    path('<uuid:pk>/', views.ContractDetailView.as_view(), name='contract-detail'),
+    path('<uuid:pk>/publish-award/', views.contract_publish_award_view, name='contract-publish-award'),
+    path('<uuid:pk>/sign-supplier/', views.contract_supplier_sign_view, name='contract-sign-supplier'),
+    path('<uuid:pk>/countersign/', views.contract_countersign_view, name='contract-countersign'),
+    path('<uuid:pk>/upload-security/', views.contract_upload_security_view, name='contract-upload-security'),
+    path('<uuid:pk>/validate-security/<uuid:security_pk>/', views.contract_validate_security_view, name='contract-validate-security'),
+    path('<uuid:pk>/assign-manager/', views.contract_assign_manager_view, name='contract-assign-manager'),
+    path('<uuid:pk>/file-appeal/', views.contract_file_appeal_view, name='contract-file-appeal'),
+    path('<uuid:pk>/resolve-appeal/<uuid:appeal_pk>/', views.contract_resolve_appeal_view, name='contract-resolve-appeal'),
+    path('<uuid:pk>/activate/', views.contract_activate_after_waiting_view, name='contract-activate'),
+    path('<uuid:pk>/closure-checklist/', views.contract_closure_checklist_view, name='contract-closure-checklist'),
+    path('<uuid:pk>/calculate-ld/', views.contract_calculate_ld_view, name='contract-calculate-ld'),
+    path('<uuid:pk>/archive/', views.contract_archive_view, name='contract-archive'),
+    path('<uuid:pk>/amend/', views.contract_amend_view, name='contract-amend'),
+    path('<uuid:pk>/amendments/<uuid:amendment_pk>/approve/', views.contract_approve_amendment_view, name='contract-approve-amendment'),
+    path('<uuid:pk>/amendments/<uuid:amendment_pk>/sign/', views.contract_sign_amendment_view, name='contract-sign-amendment'),
+    path('securities/', views.ContractSecurityListView.as_view(), name='contract-security-list'),
+    path('milestones/', views.ContractMilestoneListView.as_view(), name='contract-milestone-list'),
+    path('milestones/<uuid:pk>/', views.ContractMilestoneDetailView.as_view(), name='contract-milestone-detail'),
+    path('liquidated-damages/', views.LiquidatedDamagesListView.as_view(), name='ld-list'),
+    path('terminations/', views.TerminationListView.as_view(), name='termination-list'),
+]

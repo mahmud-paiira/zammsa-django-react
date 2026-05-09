@@ -1,0 +1,843 @@
+from decimal import Decimal
+from django.db.models import Q, Avg, Sum
+from django.utils import timezone
+from rest_framework import generics, filters, status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
+import django_filters
+
+from .models import EvaluationCommittee, ConflictOfInterest, PreliminaryExam, TechnicalScore, FinancialEvaluation, CombinedScore, BidEvaluationReport, PostQualification
+from .serializers import (
+    EvaluationCommitteeSerializer, ConflictOfInterestSerializer, PreliminaryExamSerializer, TechnicalScoreSerializer,
+    FinancialEvaluationSerializer, CombinedScoreSerializer, BidEvaluationReportSerializer,
+    PostQualificationSerializer,
+)
+from solicitations.models import Solicitation, EvaluationCriterion
+from bids.models import BidSubmission, BidOpeningDetail
+
+
+class StandardPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class BaseView:
+    pagination_class = StandardPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    permission_classes = [IsAuthenticated]
+
+
+class EvaluationCommitteeListView(BaseView, generics.ListCreateAPIView):
+    queryset = EvaluationCommittee.objects.select_related('solicitation', 'chairperson', 'secretary').all()
+    serializer_class = EvaluationCommitteeSerializer
+    ordering = ['-formed_at']
+
+
+class EvaluationCommitteeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = EvaluationCommittee.objects.all()
+    serializer_class = EvaluationCommitteeSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class PreliminaryExamListView(BaseView, generics.ListCreateAPIView):
+    queryset = PreliminaryExam.objects.select_related('bid').all()
+    serializer_class = PreliminaryExamSerializer
+    ordering = ['-exam_id']
+
+
+class PreliminaryExamDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = PreliminaryExam.objects.all()
+    serializer_class = PreliminaryExamSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class TechnicalScoreListView(BaseView, generics.ListCreateAPIView):
+    queryset = TechnicalScore.objects.select_related('bid', 'evaluator', 'criterion').all()
+    serializer_class = TechnicalScoreSerializer
+    ordering = ['-submitted_at']
+
+
+class TechnicalScoreDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = TechnicalScore.objects.all()
+    serializer_class = TechnicalScoreSerializer
+    permission_classes = [IsAuthenticated]
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def coi_declare_view(request, committee_pk):
+    try:
+        committee = EvaluationCommittee.objects.get(pk=committee_pk)
+    except EvaluationCommittee.DoesNotExist:
+        return Response({'error': 'Committee not found'}, status=404)
+
+    member_ids = [m.get('user') if isinstance(m, dict) else m for m in committee.members]
+    if str(request.user.id) not in member_ids and request.user != committee.chairperson and request.user != committee.secretary:
+        return Response({'error': 'You are not a member of this committee'}, status=403)
+
+    coi, created = ConflictOfInterest.objects.get_or_create(
+        committee=committee,
+        member=request.user,
+        defaults={
+            'declaration': request.data.get('declaration', ''),
+            'has_conflict': request.data.get('has_conflict', False),
+        }
+    )
+    if not created:
+        coi.declaration = request.data.get('declaration', coi.declaration)
+        coi.has_conflict = request.data.get('has_conflict', coi.has_conflict)
+        coi.save()
+
+    return Response({
+        'message': 'Conflict of interest declared',
+        'coi': ConflictOfInterestSerializer(coi).data,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def coi_committee_view(request, committee_pk):
+    try:
+        committee = EvaluationCommittee.objects.get(pk=committee_pk)
+    except EvaluationCommittee.DoesNotExist:
+        return Response({'error': 'Committee not found'}, status=404)
+
+    declarations = ConflictOfInterest.objects.filter(committee=committee).select_related('member')
+    return Response({
+        'declarations': ConflictOfInterestSerializer(declarations, many=True).data,
+        'recused_members': [str(d.member.id) for d in declarations if d.recused],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def technical_scores_my_view(request, bid_pk):
+    try:
+        bid = BidSubmission.objects.get(pk=bid_pk)
+    except BidSubmission.DoesNotExist:
+        return Response({'error': 'Bid not found'}, status=404)
+
+    my_scores = TechnicalScore.objects.filter(bid=bid, evaluator=request.user).select_related('criterion')
+
+    all_members_submitted = all(
+        TechnicalScore.objects.filter(bid=bid, evaluator__id=member_id).count() ==
+        EvaluationCriterion.objects.filter(solicitation=bid.solicitation).count()
+        for member_id in _get_committee_member_ids_for_bid(bid)
+    )
+
+    if all_members_submitted:
+        other_scores = TechnicalScore.objects.filter(bid=bid).exclude(evaluator=request.user).select_related('evaluator', 'criterion')
+        TechnicalScore.objects.filter(bid=bid).update(is_final=True)
+        return Response({
+            'my_scores': TechnicalScoreSerializer(my_scores, many=True).data,
+            'all_scores': TechnicalScoreSerializer(other_scores, many=True).data,
+            'is_final': True,
+        })
+
+    return Response({
+        'my_scores': TechnicalScoreSerializer(my_scores, many=True).data,
+        'all_scores': [],
+        'is_final': False,
+    })
+
+
+def _get_committee_member_ids_for_bid(bid):
+    committees = EvaluationCommittee.objects.filter(solicitation=bid.solicitation)
+    member_ids = set()
+    for c in committees:
+        for m in c.members:
+            if isinstance(m, dict):
+                uid = m.get('user')
+            else:
+                uid = str(m)
+            member_ids.add(uid)
+        member_ids.add(str(c.chairperson.id))
+        member_ids.add(str(c.secretary.id))
+
+    # remove recused members
+    recused = ConflictOfInterest.objects.filter(committee__solicitation=bid.solicitation, recused=True).values_list('member_id', flat=True)
+    member_ids -= set(str(uid) for uid in recused)
+    return list(member_ids)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def technical_score_calculate_averages_view(request, bid_pk):
+    try:
+        bid = BidSubmission.objects.get(pk=bid_pk)
+    except BidSubmission.DoesNotExist:
+        return Response({'error': 'Bid not found'}, status=404)
+
+    criteria = EvaluationCriterion.objects.filter(solicitation=bid.solicitation, criterion_type='technical')
+    committee_ids = _get_committee_member_ids_for_bid(bid)
+
+    for criterion in criteria:
+        scores = TechnicalScore.objects.filter(bid=bid, criterion=criterion)
+        if scores.count() < len(committee_ids):
+            return Response({'error': f'Not all evaluators have scored criterion: {criterion.criterion_name}'}, status=400)
+
+    results = []
+    for criterion in criteria:
+        avg = scores.filter(criterion=criterion).aggregate(avg=Avg('raw_score'))['avg'] or Decimal('0')
+        results.append({
+            'criterion_id': str(criterion.criterion_id),
+            'criterion_name': criterion.criterion_name,
+            'average_raw_score': float(avg),
+            'weighted_score': float(avg * criterion.weight / Decimal('100')),
+            'weight': float(criterion.weight),
+        })
+
+    TechnicalScore.objects.filter(bid=bid).update(is_final=True)
+
+    return Response({
+        'message': 'Averages calculated',
+        'bid_id': str(bid.bid_id),
+        'results': results,
+    })
+
+
+TECHNICAL_THRESHOLD_DEFAULT = Decimal('70')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def technical_score_threshold_check_view(request, bid_pk):
+    try:
+        bid = BidSubmission.objects.get(pk=bid_pk)
+    except BidSubmission.DoesNotExist:
+        return Response({'error': 'Bid not found'}, status=404)
+
+    threshold = Decimal(str(request.data.get('threshold', TECHNICAL_THRESHOLD_DEFAULT)))
+    criteria = EvaluationCriterion.objects.filter(solicitation=bid.solicitation, criterion_type='technical')
+
+    total_weighted = Decimal('0')
+    total_weight = Decimal('0')
+    details = []
+
+    for criterion in criteria:
+        avg = TechnicalScore.objects.filter(bid=bid, criterion=criterion).aggregate(avg=Avg('raw_score'))['avg'] or Decimal('0')
+        weighted = avg * criterion.weight / Decimal('100')
+        total_weighted += weighted
+        total_weight += criterion.weight
+        details.append({
+            'criterion_id': str(criterion.criterion_id),
+            'criterion_name': criterion.criterion_name,
+            'average_raw_score': float(avg),
+            'weighted_score': float(weighted),
+            'weight': float(criterion.weight),
+        })
+
+    overall_pct = (total_weighted / total_weight * Decimal('100')) if total_weight > 0 else Decimal('0')
+    passed = overall_pct >= threshold
+
+    return Response({
+        'bid_id': str(bid.bid_id),
+        'overall_technical_score': float(overall_pct),
+        'threshold': float(threshold),
+        'passed': passed,
+        'details': details,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def technical_score_submit_view(request):
+    bid_id = request.data.get('bid_id')
+    criterion_id = request.data.get('criterion_id')
+    raw_score = request.data.get('raw_score')
+    comment = request.data.get('comment', '')
+
+    try:
+        bid = BidSubmission.objects.get(pk=bid_id)
+        criterion = EvaluationCriterion.objects.get(pk=criterion_id)
+    except (BidSubmission.DoesNotExist, EvaluationCriterion.DoesNotExist):
+        return Response({'error': 'Bid or criterion not found'}, status=404)
+
+    committee_ids = _get_committee_member_ids_for_bid(bid)
+    if str(request.user.id) not in committee_ids:
+        return Response({'error': 'You are not an active member of the evaluation committee for this solicitation'}, status=403)
+
+    if TechnicalScore.objects.filter(bid=bid, evaluator=request.user, criterion=criterion).exists():
+        return Response({'error': 'You have already scored this criterion for this bid'}, status=400)
+
+    weighted_score = Decimal(str(raw_score)) * (criterion.weight / Decimal('100'))
+    score = TechnicalScore.objects.create(
+        bid=bid,
+        evaluator=request.user,
+        criterion=criterion,
+        raw_score=raw_score,
+        weighted_score=weighted_score,
+        comment=comment,
+    )
+
+    criteria_count = EvaluationCriterion.objects.filter(solicitation=bid.solicitation, criterion_type='technical').count()
+    scored_count = TechnicalScore.objects.filter(bid=bid, evaluator=request.user).values('criterion').distinct().count()
+
+    all_members_done = all(
+        TechnicalScore.objects.filter(bid=bid, evaluator__id=mid).values('criterion').distinct().count() >= criteria_count
+        for mid in committee_ids
+    )
+
+    if all_members_done:
+        TechnicalScore.objects.filter(bid=bid).update(is_final=True)
+
+    return Response({
+        'message': 'Technical score submitted',
+        'score': TechnicalScoreSerializer(score).data,
+        'all_criteria_scored': scored_count >= criteria_count,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def calculate_qcbs_view(request, solicitation_pk):
+    try:
+        sol = Solicitation.objects.get(pk=solicitation_pk)
+    except Solicitation.DoesNotExist:
+        return Response({'error': 'Solicitation not found'}, status=404)
+
+    criteria = EvaluationCriterion.objects.filter(solicitation=sol)
+    tech_weight = criteria.filter(criterion_type='technical').aggregate(s=Sum('weight'))['s'] or Decimal('80')
+    fin_weight = Decimal('100') - tech_weight
+
+    bids = BidSubmission.objects.filter(solicitation=sol, status__in=['opened', 'responsive'])
+    results = []
+
+    for bid in bids:
+        tech_scores = TechnicalScore.objects.filter(bid=bid)
+        if not tech_scores.exists():
+            continue
+
+        fin_eval = FinancialEvaluation.objects.filter(bid=bid).first()
+        if not fin_eval:
+            continue
+
+        avg_tech = tech_scores.aggregate(avg=Avg('weighted_score'))['avg'] or Decimal('0')
+        fin_score = fin_eval.financial_score
+
+        total_score = (avg_tech * tech_weight / Decimal('100')) + (fin_score * fin_weight / Decimal('100'))
+
+        CombinedScore.objects.update_or_create(
+            bid=bid,
+            defaults={
+                'technical_score': avg_tech,
+                'financial_score': fin_score,
+                'total_score': total_score,
+            }
+        )
+        results.append({
+            'bid_id': str(bid.bid_id),
+            'submission_id': bid.submission_id,
+            'bidder_name': bid.supplier.full_name,
+            'technical_score': float(avg_tech),
+            'financial_score': float(fin_score),
+            'total_score': float(total_score),
+        })
+
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    for idx, r in enumerate(results, start=1):
+        CombinedScore.objects.filter(bid_id=r['bid_id']).update(rank=idx)
+        r['rank'] = idx
+
+    return Response({
+        'message': 'QCBS calculation complete',
+        'tech_weight': float(tech_weight),
+        'fin_weight': float(fin_weight),
+        'results': results,
+    })
+
+
+class FinancialEvaluationListView(BaseView, generics.ListCreateAPIView):
+    queryset = FinancialEvaluation.objects.select_related('bid').all()
+    serializer_class = FinancialEvaluationSerializer
+    ordering = ['-evaluation_id']
+
+
+class FinancialEvaluationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = FinancialEvaluation.objects.all()
+    serializer_class = FinancialEvaluationSerializer
+    permission_classes = [IsAuthenticated]
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def authorize_financial_opening_view(request, solicitation_pk):
+    try:
+        sol = Solicitation.objects.get(pk=solicitation_pk)
+    except Solicitation.DoesNotExist:
+        return Response({'error': 'Solicitation not found'}, status=404)
+
+    committees = EvaluationCommittee.objects.filter(solicitation=sol)
+    is_chair = any(str(c.chairperson.id) == str(request.user.id) for c in committees)
+    if not is_chair:
+        return Response({'error': 'Only the committee chair can authorize financial envelope opening'}, status=403)
+
+    opening_details = BidOpeningDetail.objects.filter(
+        opening__solicitation=sol,
+        financial_sealed=True,
+    ).select_related('bid')
+
+    if not opening_details.exists():
+        return Response({'error': 'No sealed financial envelopes found for this solicitation'}, status=400)
+
+    opened_count = 0
+    for detail in opening_details:
+        detail.financial_sealed = False
+        detail.save()
+        bid = detail.bid
+        bid.financial_envelope_encrypted = False
+        bid.save(update_fields=['financial_envelope_encrypted'])
+        opened_count += 1
+
+    return Response({
+        'message': f'Financial envelopes unsealed for {opened_count} bids',
+        'opened_count': opened_count,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_passed_tech_bids_view(request, solicitation_pk):
+    try:
+        sol = Solicitation.objects.get(pk=solicitation_pk)
+    except Solicitation.DoesNotExist:
+        return Response({'error': 'Solicitation not found'}, status=404)
+
+    threshold = Decimal(str(request.query_params.get('threshold', TECHNICAL_THRESHOLD_DEFAULT)))
+    criteria = EvaluationCriterion.objects.filter(solicitation=sol, criterion_type='technical')
+    total_tech_weight = criteria.aggregate(s=Sum('weight'))['s'] or Decimal('100')
+
+    bids = BidSubmission.objects.filter(solicitation=sol, status__in=['opened', 'responsive'])
+    results = []
+
+    for bid in bids:
+        tech_scores = TechnicalScore.objects.filter(bid=bid)
+        if not tech_scores.exists() or not tech_scores.filter(is_final=True).exists():
+            continue
+
+        total_weighted = Decimal('0')
+        details = []
+        for criterion in criteria:
+            avg = tech_scores.filter(criterion=criterion).aggregate(avg=Avg('raw_score'))['avg'] or Decimal('0')
+            weighted = avg * criterion.weight / Decimal('100')
+            total_weighted += weighted
+            details.append({
+                'criterion_id': str(criterion.criterion_id),
+                'criterion_name': criterion.criterion_name,
+                'average_raw_score': float(avg),
+                'weighted_score': float(weighted),
+                'weight': float(criterion.weight),
+            })
+
+        overall_pct = (total_weighted / total_tech_weight * Decimal('100')) if total_tech_weight > 0 else Decimal('0')
+        passed = overall_pct >= threshold
+
+        financial_eval = FinancialEvaluation.objects.filter(bid=bid).first()
+        opening_detail = BidOpeningDetail.objects.filter(bid=bid).first()
+
+        results.append({
+            'bid_id': str(bid.bid_id),
+            'submission_id': bid.submission_id,
+            'bidder_name': bid.supplier.full_name,
+            'overall_technical_score': float(overall_pct),
+            'passed': passed,
+            'financial_evaluation_id': str(financial_eval.evaluation_id) if financial_eval else None,
+            'evaluated_price': float(financial_eval.evaluated_price) if financial_eval else None,
+            'financial_score': float(financial_eval.financial_score) if financial_eval else None,
+            'financial_sealed': opening_detail.financial_sealed if opening_detail else True,
+            'details': details,
+        })
+
+    return Response({
+        'solicitation_id': str(sol.solicitation_id),
+        'threshold': float(threshold),
+        'bids': results,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def financial_evaluation_calculate_view(request, bid_pk):
+    try:
+        bid = BidSubmission.objects.get(pk=bid_pk)
+    except BidSubmission.DoesNotExist:
+        return Response({'error': 'Bid not found'}, status=404)
+
+    original_price = Decimal(str(request.data.get('original_price', bid.bid_price or 0)))
+    corrected_price = Decimal(str(request.data.get('corrected_price', original_price)))
+    source_currency = request.data.get('source_currency', bid.currency or 'ZMW')
+    conversion_rate = request.data.get('conversion_rate')
+    preference_margin = Decimal(str(request.data.get('preference_margin', 0)))
+    preference_category = request.data.get('preference_category', '0')
+    arithmetic_corrections = request.data.get('arithmetic_corrections', [])
+
+    currency_converted_price = None
+    if conversion_rate and source_currency != 'ZMW':
+        currency_converted_price = corrected_price * Decimal(str(conversion_rate))
+
+    price_for_eval = currency_converted_price if currency_converted_price else corrected_price
+    evaluated_price = price_for_eval * (Decimal('1') - preference_margin / Decimal('100'))
+
+    min_price = FinancialEvaluation.objects.filter(bid__solicitation=bid.solicitation).order_by('evaluated_price').first()
+    min_evaluated = min_price.evaluated_price if min_price else evaluated_price
+    financial_score = (min_evaluated / evaluated_price) * Decimal('100') if evaluated_price > 0 else Decimal('0')
+
+    evaluation = FinancialEvaluation.objects.create(
+        bid=bid,
+        original_price=original_price,
+        corrected_price=corrected_price,
+        currency_converted_price=currency_converted_price,
+        source_currency=source_currency,
+        conversion_rate=conversion_rate,
+        preference_applied=preference_margin,
+        preference_category=preference_category,
+        arithmetic_corrections=arithmetic_corrections,
+        evaluated_price=evaluated_price,
+        financial_score=financial_score,
+    )
+
+    return Response({
+        'message': 'Financial evaluation complete',
+        'evaluation': FinancialEvaluationSerializer(evaluation).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def select_winner_view(request, solicitation_pk):
+    try:
+        sol = Solicitation.objects.get(pk=solicitation_pk)
+    except Solicitation.DoesNotExist:
+        return Response({'error': 'Solicitation not found'}, status=404)
+
+    bid_id = request.data.get('bid_id')
+    if not bid_id:
+        return Response({'error': 'bid_id is required'}, status=400)
+
+    try:
+        winner = BidSubmission.objects.get(pk=bid_id, solicitation=sol)
+    except BidSubmission.DoesNotExist:
+        return Response({'error': 'Bid not found for this solicitation'}, status=404)
+
+    winner.status = 'awarded'
+    winner.save(update_fields=['status'])
+
+    sol.status = 'awarded'
+    sol.save(update_fields=['status'])
+
+    other_bids = BidSubmission.objects.filter(solicitation=sol).exclude(pk=bid_id)
+    other_bids.update(status='withdrawn')
+
+    return Response({
+        'message': f'Winner selected: {winner.submission_id}',
+        'winner_id': str(winner.bid_id),
+        'winner_name': winner.supplier.full_name,
+        'solicitation_status': sol.status,
+    })
+
+
+class BidEvaluationReportListView(BaseView, generics.ListCreateAPIView):
+    queryset = BidEvaluationReport.objects.select_related('solicitation', 'approved_by', 'created_by').all()
+    serializer_class = BidEvaluationReportSerializer
+    ordering = ['-created_at']
+
+
+class BidEvaluationReportDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = BidEvaluationReport.objects.all()
+    serializer_class = BidEvaluationReportSerializer
+    permission_classes = [IsAuthenticated]
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ber_generate_view(request, solicitation_pk):
+    try:
+        sol = Solicitation.objects.get(pk=solicitation_pk)
+    except Solicitation.DoesNotExist:
+        return Response({'error': 'Solicitation not found'}, status=404)
+
+    committees = EvaluationCommittee.objects.filter(solicitation=sol)
+    is_chair = any(str(c.chairperson.id) == str(request.user.id) for c in committees)
+    if not is_chair:
+        return Response({'error': 'Only the committee chair can generate the BER'}, status=403)
+
+    if BidEvaluationReport.objects.filter(solicitation=sol).exclude(status='rejected').exists():
+        return Response({'error': 'A BER already exists for this solicitation'}, status=400)
+
+    criteria = EvaluationCriterion.objects.filter(solicitation=sol)
+    bids = BidSubmission.objects.filter(solicitation=sol, status__in=['opened', 'responsive', 'awarded'])
+    tech_criteria = criteria.filter(criterion_type='technical')
+
+    tech_eval_data = []
+    for bid in bids:
+        tech_scores = TechnicalScore.objects.filter(bid=bid)
+        if not tech_scores.exists():
+            continue
+        criterion_details = []
+        total_weighted = Decimal('0')
+        for c in tech_criteria:
+            avg = tech_scores.filter(criterion=c).aggregate(avg=Avg('raw_score'))['avg'] or Decimal('0')
+            weighted = avg * c.weight / Decimal('100')
+            total_weighted += weighted
+            criterion_details.append({
+                'criterion_name': c.criterion_name,
+                'weight': float(c.weight),
+                'average_raw_score': float(avg),
+                'weighted_score': float(weighted),
+            })
+        tech_weight = tech_criteria.aggregate(s=Sum('weight'))['s'] or Decimal('100')
+        overall_pct = float(total_weighted / tech_weight * Decimal('100')) if tech_weight > 0 else 0
+
+        fin_eval = FinancialEvaluation.objects.filter(bid=bid).first()
+        combined = CombinedScore.objects.filter(bid=bid).first()
+
+        tech_eval_data.append({
+            'submission_id': bid.submission_id,
+            'bidder_name': bid.supplier.full_name,
+            'overall_technical_score': overall_pct,
+            'criterion_details': criterion_details,
+            'financial_score': float(fin_eval.financial_score) if fin_eval else None,
+            'evaluated_price': float(fin_eval.evaluated_price) if fin_eval else None,
+            'preference_applied': float(fin_eval.preference_applied) if fin_eval else None,
+            'combined_technical_score': float(combined.technical_score) if combined else None,
+            'combined_total_score': float(combined.total_score) if combined else None,
+            'rank': combined.rank if combined else None,
+        })
+
+    tech_eval_data.sort(key=lambda x: x['rank'] if x['rank'] else 999)
+
+    committee_data = []
+    for c in committees:
+        member_list = []
+        for m in c.members:
+            uid = m.get('user') if isinstance(m, dict) else m
+            member_list.append({'id': str(uid)})
+        cois = ConflictOfInterest.objects.filter(committee=c)
+        committee_data.append({
+            'chairperson_name': c.chairperson.full_name,
+            'secretary_name': c.secretary.full_name,
+            'member_ids': member_list,
+            'coi_declarations': [
+                {'member_name': co.member.full_name, 'has_conflict': co.has_conflict, 'recused': co.recused}
+                for co in cois
+            ],
+        })
+
+    winner = bids.filter(status='awarded').first()
+
+    report_content = {
+        'solicitation': {
+            'sol_number': sol.sol_number,
+            'title': sol.title,
+            'description': sol.description,
+            'method': sol.method,
+            'estimated_value': float(sol.estimated_value) if sol.estimated_value else None,
+            'closing_date': sol.closing_date.isoformat() if sol.closing_date else None,
+        },
+        'evaluation_committees': committee_data,
+        'technical_evaluation': tech_eval_data,
+        'winner': {
+            'submission_id': winner.submission_id if winner else None,
+            'bidder_name': winner.supplier.full_name if winner else None,
+        } if winner else None,
+        'generated_at': timezone.now().isoformat(),
+    }
+
+    ber = BidEvaluationReport.objects.create(
+        solicitation=sol,
+        report_content=report_content,
+        status='draft',
+        created_by=request.user,
+    )
+
+    return Response({
+        'message': 'BER generated successfully',
+        'ber': BidEvaluationReportSerializer(ber).data,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ber_sign_view(request, pk):
+    try:
+        ber = BidEvaluationReport.objects.get(pk=pk)
+    except BidEvaluationReport.DoesNotExist:
+        return Response({'error': 'BER not found'}, status=404)
+
+    committees = EvaluationCommittee.objects.filter(solicitation=ber.solicitation)
+    is_member = False
+    member_role = ''
+    for c in committees:
+        if str(c.chairperson.id) == str(request.user.id):
+            is_member = True
+            member_role = 'chairperson'
+            break
+        if str(c.secretary.id) == str(request.user.id):
+            is_member = True
+            member_role = 'secretary'
+            break
+        for m in c.members:
+            uid = m.get('user') if isinstance(m, dict) else m
+            if str(uid) == str(request.user.id):
+                is_member = True
+                member_role = 'member'
+                break
+        if is_member:
+            break
+
+    if not is_member:
+        return Response({'error': 'Only committee members can sign the BER'}, status=403)
+
+    already_signed = any(s['member_id'] == str(request.user.id) for s in ber.signatures)
+    if already_signed:
+        return Response({'error': 'You have already signed this BER'}, status=400)
+
+    new_sig = {
+        'member_id': str(request.user.id),
+        'member_name': request.user.full_name,
+        'role': member_role,
+        'signed_at': timezone.now().isoformat(),
+    }
+    ber.signatures = ber.signatures + [new_sig]
+    ber.save(update_fields=['signatures'])
+
+    return Response({
+        'message': 'BER signed successfully',
+        'signature': new_sig,
+        'total_signatures': len(ber.signatures),
+        'all_signed': ber.has_all_signed(),
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def ber_committee_status_view(request, pk):
+    try:
+        ber = BidEvaluationReport.objects.get(pk=pk)
+    except BidEvaluationReport.DoesNotExist:
+        return Response({'error': 'BER not found'}, status=404)
+
+    committees = EvaluationCommittee.objects.filter(solicitation=ber.solicitation)
+    members = []
+    for c in committees:
+        members.append({
+            'id': str(c.chairperson.id),
+            'full_name': c.chairperson.full_name,
+            'role': 'chairperson',
+            'signed': any(s['member_id'] == str(c.chairperson.id) for s in ber.signatures),
+        })
+        members.append({
+            'id': str(c.secretary.id),
+            'full_name': c.secretary.full_name,
+            'role': 'secretary',
+            'signed': any(s['member_id'] == str(c.secretary.id) for s in ber.signatures),
+        })
+        for m in c.members:
+            uid = m.get('user') if isinstance(m, dict) else m
+            members.append({
+                'id': str(uid),
+                'full_name': m.get('full_name', str(uid)[:8]) if isinstance(m, dict) else str(uid)[:8],
+                'role': 'member',
+                'signed': any(s['member_id'] == str(uid) for s in ber.signatures),
+            })
+
+    return Response({
+        'ber_id': str(ber.ber_id),
+        'status': ber.status,
+        'signatures': ber.signatures,
+        'members': members,
+        'signed_count': len(ber.signatures),
+        'total_required': len(members),
+        'all_signed': ber.has_all_signed(),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ber_submit_view(request, pk):
+    try:
+        ber = BidEvaluationReport.objects.get(pk=pk)
+    except BidEvaluationReport.DoesNotExist:
+        return Response({'error': 'BER not found'}, status=404)
+
+    committees = EvaluationCommittee.objects.filter(solicitation=ber.solicitation)
+    is_chair = any(str(c.chairperson.id) == str(request.user.id) for c in committees)
+    if not is_chair:
+        return Response({'error': 'Only the committee chair can submit the BER to ZPC'}, status=403)
+
+    if not ber.has_all_signed():
+        return Response({'error': 'All committee members must sign before submitting'}, status=400)
+
+    ber.status = 'submitted'
+    ber.save()
+    return Response({'message': 'BER submitted for ZPC approval', 'status': ber.status})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ber_approve_view(request, pk):
+    try:
+        ber = BidEvaluationReport.objects.get(pk=pk)
+    except BidEvaluationReport.DoesNotExist:
+        return Response({'error': 'BER not found'}, status=404)
+
+    if request.user.role != 'zpc_member':
+        return Response({'error': 'Only ZPC members can approve BER'}, status=403)
+
+    if ber.status != 'submitted':
+        return Response({'error': 'BER must be submitted before approval'}, status=400)
+
+    ber.status = 'approved'
+    ber.approved_by = request.user
+    ber.approved_at = timezone.now()
+    ber.save()
+
+    ber.solicitation.status = 'awarded'
+    ber.solicitation.save()
+
+    return Response({'message': 'BER approved. Solicitation awarded.', 'status': ber.status})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ber_reject_view(request, pk):
+    try:
+        ber = BidEvaluationReport.objects.get(pk=pk)
+    except BidEvaluationReport.DoesNotExist:
+        return Response({'error': 'BER not found'}, status=404)
+
+    if request.user.role != 'zpc_member':
+        return Response({'error': 'Only ZPC members can reject BER'}, status=403)
+
+    reason = request.data.get('reason', '')
+    ber.status = 'rejected'
+    ber.rejection_reason = reason
+    ber.save()
+
+    return Response({
+        'message': 'BER rejected',
+        'status': ber.status,
+        'rejection_reason': ber.rejection_reason,
+    })
+
+
+class CombinedScoreListView(BaseView, generics.ListAPIView):
+    queryset = CombinedScore.objects.select_related('bid').all()
+    serializer_class = CombinedScoreSerializer
+    ordering = ['rank']
+
+
+class PostQualificationListView(BaseView, generics.ListCreateAPIView):
+    queryset = PostQualification.objects.select_related('ber', 'bidder').all()
+    serializer_class = PostQualificationSerializer
+    ordering = ['-pq_id']
+
+
+class PostQualificationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = PostQualification.objects.all()
+    serializer_class = PostQualificationSerializer
+    permission_classes = [IsAuthenticated]

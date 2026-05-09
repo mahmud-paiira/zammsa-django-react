@@ -1,0 +1,27 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('budget-allocations/', views.BudgetAllocationListView.as_view(), name='budget-allocation-list'),
+    path('budget-allocations/<uuid:pk>/', views.BudgetAllocationDetailView.as_view(), name='budget-allocation-detail'),
+    path('encumbrances/', views.BudgetEncumbranceListView.as_view(), name='fin-encumbrance-list'),
+    path('invoices/', views.InvoiceListView.as_view(), name='invoice-list'),
+    path('invoices/<uuid:pk>/', views.InvoiceDetailView.as_view(), name='invoice-detail'),
+    path('invoices/<uuid:pk>/submit/', views.invoice_submit_view, name='invoice-submit'),
+    path('invoices/<uuid:pk>/match/', views.invoice_match_view, name='invoice-match'),
+    path('invoices/<uuid:pk>/approve/', views.invoice_approve_view, name='invoice-approve'),
+    path('invoices/<uuid:pk>/reject/', views.invoice_reject_view, name='invoice-reject'),
+    path('invoices/<uuid:pk>/pay/', views.payment_process_view, name='invoice-pay'),
+    path('invoices/<uuid:pk>/bank-confirm/', views.payment_bank_confirm_view, name='invoice-bank-confirm'),
+    path('invoices/<uuid:pk>/send-advice/', views.invoice_send_payment_advice_view, name='invoice-send-advice'),
+    path('invoices/<uuid:pk>/post-erp/', views.invoice_post_to_erp_view, name='invoice-post-erp'),
+    path('grn-webhook/', views.grn_webhook_view, name='grn-webhook'),
+    path('payments/', views.PaymentListView.as_view(), name='payment-list'),
+    path('letters-of-credit/', views.LetterOfCreditListView.as_view(), name='loc-list'),
+    path('letters-of-credit/<uuid:pk>/', views.LetterOfCreditDetailView.as_view(), name='loc-detail'),
+    path('budget-allocations/<uuid:pk>/encumber/', views.budget_encumber_view, name='budget-encumber'),
+    path('budget-allocations/<uuid:pk>/release/', views.budget_release_view, name='budget-release'),
+    path('budget-allocations/sync-from-erp/', views.budget_sync_from_erp_view, name='budget-sync-erp'),
+    path('budget-allocations/summary/', views.budget_summary_view, name='budget-summary'),
+    path('letters-of-credit/<uuid:pk>/drawdown/', views.lc_drawdown_view, name='loc-drawdown'),
+]

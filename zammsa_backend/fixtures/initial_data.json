@@ -1,0 +1,408 @@
+[
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 1,
+    "fields": {
+      "key": "SYSTEM_NAME",
+      "value": "ZAMMSA e-Procurement System",
+      "category": "general",
+      "description": "System display name",
+      "is_public": true
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 2,
+    "fields": {
+      "key": "SYSTEM_EMAIL",
+      "value": "procurement@zammsa.zm",
+      "category": "general",
+      "description": "Default system email address",
+      "is_public": true
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 3,
+    "fields": {
+      "key": "SYSTEM_PHONE",
+      "value": "+260-211-123456",
+      "category": "general",
+      "description": "Default system phone number",
+      "is_public": true
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 4,
+    "fields": {
+      "key": "TENDER_VALIDITY_PERIOD",
+      "value": "90",
+      "category": "procurement",
+      "description": "Default tender validity period in days",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 5,
+    "fields": {
+      "key": "BID_BOND_PERCENTAGE",
+      "value": "2",
+      "category": "procurement",
+      "description": "Default bid bond as percentage of estimated value",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 6,
+    "fields": {
+      "key": "PERFORMANCE_BOND_PERCENTAGE",
+      "value": "10",
+      "category": "procurement",
+      "description": "Default performance bond as percentage of contract value",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 7,
+    "fields": {
+      "key": "VENDOR_REGISTRATION_FEE",
+      "value": "500",
+      "category": "vendor",
+      "description": "Vendor registration fee in ZMW",
+      "is_public": true
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 8,
+    "fields": {
+      "key": "MAX_BIDS_PER_TENDER",
+      "value": "0",
+      "category": "procurement",
+      "description": "Maximum bids per tender (0 = unlimited)",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 9,
+    "fields": {
+      "key": "AUTO_OPEN_ENVELOPES",
+      "value": "false",
+      "category": "evaluation",
+      "description": "Automatically open financial envelopes after technical evaluation",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 10,
+    "fields": {
+      "key": "MFA_ENABLED",
+      "value": "true",
+      "category": "security",
+      "description": "Enable multi-factor authentication",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 11,
+    "fields": {
+      "key": "PASSWORD_MIN_LENGTH",
+      "value": "8",
+      "category": "security",
+      "description": "Minimum password length",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 12,
+    "fields": {
+      "key": "SESSION_TIMEOUT_MINUTES",
+      "value": "60",
+      "category": "security",
+      "description": "Inactivity session timeout in minutes",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 13,
+    "fields": {
+      "key": "AUDIT_RETENTION_DAYS",
+      "value": "2555",
+      "category": "compliance",
+      "description": "Audit log retention period in days (default 7 years)",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.SystemSetting",
+    "pk": 14,
+    "fields": {
+      "key": "INTEGRATION_TIMEOUT_SECONDS",
+      "value": "30",
+      "category": "integration",
+      "description": "External API integration timeout in seconds",
+      "is_public": false
+    }
+  },
+  {
+    "model": "system_config.GovernanceSetting",
+    "pk": 1,
+    "fields": {
+      "key": "TWO_PERSON_APPROVAL",
+      "value": "true",
+      "category": "approval",
+      "description": "Require two-person approval for procurement changes",
+      "is_active": true
+    }
+  },
+  {
+    "model": "system_config.GovernanceSetting",
+    "pk": 2,
+    "fields": {
+      "key": "MANDATORY_COMMITTEE_REVIEW",
+      "value": "true",
+      "category": "approval",
+      "description": "Mandatory procurement committee review for high-value procurements",
+      "is_active": true
+    }
+  },
+  {
+    "model": "system_config.GovernanceSetting",
+    "pk": 3,
+    "fields": {
+      "key": "ZPC_THRESHOLD",
+      "value": "500000",
+      "category": "threshold",
+      "description": "ZPPA approval threshold in ZMW",
+      "is_active": true
+    }
+  },
+  {
+    "model": "system_config.GovernanceSetting",
+    "pk": 4,
+    "fields": {
+      "key": "OPEN_TENDERING_THRESHOLD",
+      "value": "200000",
+      "category": "threshold",
+      "description": "Minimum value for open tendering in ZMW",
+      "is_active": true
+    }
+  },
+  {
+    "model": "system_config.GovernanceSetting",
+    "pk": 5,
+    "fields": {
+      "key": "DIRECT_PROCUREMENT_LIMIT",
+      "value": "50000",
+      "category": "threshold",
+      "description": "Maximum value for direct procurement in ZMW",
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 1,
+    "fields": {
+      "name": "Each",
+      "code": "EA",
+      "description": "Individual unit"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 2,
+    "fields": {
+      "name": "Box",
+      "code": "BX",
+      "description": "Box of multiple units"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 3,
+    "fields": {
+      "name": "Carton",
+      "code": "CT",
+      "description": "Carton/package"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 4,
+    "fields": {
+      "name": "Kilogram",
+      "code": "KG",
+      "description": "Weight in kilograms"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 5,
+    "fields": {
+      "name": "Litre",
+      "code": "LTR",
+      "description": "Volume in litres"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 6,
+    "fields": {
+      "name": "Meter",
+      "code": "MTR",
+      "description": "Length in meters"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 7,
+    "fields": {
+      "name": "Pack",
+      "code": "PK",
+      "description": "Pack of items"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 8,
+    "fields": {
+      "name": "Roll",
+      "code": "RL",
+      "description": "Roll of material"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 9,
+    "fields": {
+      "name": "Set",
+      "code": "SET",
+      "description": "Set of items"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 10,
+    "fields": {
+      "name": "Pair",
+      "code": "PR",
+      "description": "Pair of items"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 11,
+    "fields": {
+      "name": "Dose",
+      "code": "DZ",
+      "description": "Dosage unit for pharmaceuticals"
+    }
+  },
+  {
+    "model": "master_data.UnitOfMeasure",
+    "pk": 12,
+    "fields": {
+      "name": "Vial",
+      "code": "VL",
+      "description": "Vial/container for injectables"
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 1,
+    "fields": {
+      "name": "ZAMMSA Headquarters",
+      "code": "HQ",
+      "description": "National headquarters",
+      "parent": null,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 2,
+    "fields": {
+      "name": "Procurement Department",
+      "code": "PROC",
+      "description": "Procurement and supply chain",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 3,
+    "fields": {
+      "name": "Finance Department",
+      "code": "FIN",
+      "description": "Finance and accounting",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 4,
+    "fields": {
+      "name": "Health Programmes",
+      "code": "HP",
+      "description": "Health programmes and disease control",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 5,
+    "fields": {
+      "name": "Internal Audit",
+      "code": "AUD",
+      "description": "Internal audit and compliance",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 6,
+    "fields": {
+      "name": "ICT Department",
+      "code": "ICT",
+      "description": "Information and communications technology",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.Department",
+    "pk": 7,
+    "fields": {
+      "name": "Human Resources",
+      "code": "HR",
+      "description": "Human resources and administration",
+      "parent": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "master_data.FiscalYear",
+    "pk": 1,
+    "fields": {
+      "name": "2025-2026",
+      "start_date": "2025-01-01",
+      "end_date": "2025-12-31",
+      "is_current": true,
+      "is_closed": false,
+      "notes": "Current fiscal year"
+    }
+  }
+]

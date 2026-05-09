@@ -1,0 +1,201 @@
+from rest_framework import serializers
+from .models import SolicitationTemplate, Solicitation, EvaluationCriterion, SolicitationAddendum, ClarificationRequest, SolicitationDocument
+from master_data.models import Department
+from requisitions.models import Requisition
+
+
+class SolicitationTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SolicitationTemplate
+        fields = '__all__'
+
+
+class EvaluationCriterionSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='criterion_id', read_only=True)
+
+    class Meta:
+        model = EvaluationCriterion
+        fields = '__all__'
+        read_only_fields = ('criterion_id',)
+
+    def validate_weight(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Weight must be non-negative')
+        weight = float(value)
+        if self.instance:
+            current_sum = sum(float(c.weight) for c in self.instance.solicitation.evaluation_criteria.exclude(criterion_id=self.instance.criterion_id))
+        elif self.initial_data.get('solicitation'):
+            from .models import Solicitation
+            try:
+                sol = Solicitation.objects.get(pk=self.initial_data['solicitation'])
+                current_sum = sum(float(c.weight) for c in sol.evaluation_criteria.all())
+            except Solicitation.DoesNotExist:
+                current_sum = 0
+        else:
+            current_sum = 0
+        if current_sum + weight > 100:
+            raise serializers.ValidationError(f'Total criteria weight would exceed 100% (currently {current_sum}%, adding {weight}%)')
+        return value
+
+
+class SolicitationAddendumSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='addendum_id', read_only=True)
+    number = serializers.IntegerField(source='addendum_number', read_only=True)
+    issued_at = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = SolicitationAddendum
+        fields = '__all__'
+        read_only_fields = ('addendum_id', 'addendum_number', 'created_at')
+
+
+class ClarificationRequestSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='clarification_id', read_only=True)
+    supplier_name = serializers.CharField(source='supplier.full_name', read_only=True)
+
+    class Meta:
+        model = ClarificationRequest
+        fields = '__all__'
+        read_only_fields = ('clarification_id', 'asked_at')
+
+
+class SolicitationDocumentSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='document_id', read_only=True)
+    filename = serializers.CharField(source='file_path', read_only=True)
+
+    class Meta:
+        model = SolicitationDocument
+        fields = '__all__'
+
+
+class SolicitationListSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='solicitation_id', read_only=True)
+    type = serializers.CharField(source='method', read_only=True)
+    department = serializers.SerializerMethodField()
+    estimated_value = serializers.SerializerMethodField()
+    issue_date = serializers.SerializerMethodField()
+    requisition_number = serializers.CharField(source='requisition.req_number', read_only=True)
+
+    class Meta:
+        model = Solicitation
+        fields = ('id', 'solicitation_id', 'sol_number', 'title', 'type', 'method', 'department', 'estimated_value', 'issue_date', 'closing_date', 'status', 'published_at', 'created_at', 'requisition_number')
+
+    def get_department(self, obj):
+        if obj.department:
+            return obj.department.dept_name
+        if obj.requisition:
+            return obj.requisition.department.dept_name
+        return None
+
+    def get_estimated_value(self, obj):
+        if obj.estimated_value is not None:
+            return float(obj.estimated_value)
+        if obj.requisition:
+            return float(obj.requisition.estimated_total)
+        return None
+
+    def get_issue_date(self, obj):
+        if obj.issue_date:
+            return obj.issue_date.isoformat()
+        if obj.published_at:
+            return obj.published_at.date().isoformat()
+        return obj.created_at.date().isoformat()
+
+
+class SolicitationSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='solicitation_id', read_only=True)
+    type = serializers.CharField(source='method', required=False)
+    procurement_method = serializers.CharField(source='method', required=False)
+    estimated_value = serializers.SerializerMethodField()
+    issue_date = serializers.SerializerMethodField()
+    department = serializers.SerializerMethodField()
+    department_name = serializers.SerializerMethodField()
+    opening_date = serializers.DateTimeField(required=False)
+    requisition = serializers.PrimaryKeyRelatedField(required=False, allow_null=True, queryset=Requisition.objects.all())
+    document_sets = SolicitationDocumentSerializer(many=True, source='documents', read_only=True)
+    clarification_responses = ClarificationRequestSerializer(many=True, source='clarifications', read_only=True)
+    evaluation_criteria = EvaluationCriterionSerializer(many=True, read_only=True)
+    addenda = SolicitationAddendumSerializer(many=True, read_only=True)
+    documents = SolicitationDocumentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Solicitation
+        exclude = ('method',)
+        read_only_fields = ('solicitation_id', 'sol_number', 'published_at', 'created_at', 'updated_at')
+
+    def get_estimated_value(self, obj):
+        if obj.estimated_value is not None:
+            return float(obj.estimated_value)
+        if obj.requisition:
+            return float(obj.requisition.estimated_total)
+        return None
+
+    def get_issue_date(self, obj):
+        if obj.issue_date:
+            return obj.issue_date.isoformat()
+        if obj.published_at:
+            return obj.published_at.date().isoformat()
+        return obj.created_at.date().isoformat()
+
+    def get_department(self, obj):
+        if obj.department:
+            return obj.department.dept_name
+        if obj.requisition:
+            return obj.requisition.department.dept_name
+        return None
+
+    def get_department_name(self, obj):
+        return self.get_department(obj)
+
+    def create(self, validated_data):
+        from django.utils import timezone
+        import secrets
+
+        type_val = self.initial_data.get('type')
+        if type_val and 'method' not in validated_data:
+            validated_data['method'] = type_val
+        procurement_method = self.initial_data.get('procurement_method')
+        if procurement_method and 'method' not in validated_data:
+            validated_data['method'] = procurement_method
+
+        dept_name = self.initial_data.get('department')
+        if dept_name and 'department' not in validated_data:
+            dept = Department.objects.filter(dept_name=dept_name).first()
+            if dept:
+                validated_data['department'] = dept
+
+        if 'sol_number' not in validated_data or not validated_data.get('sol_number'):
+            validated_data['sol_number'] = f"SOL-{timezone.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+
+        instance = super().create(validated_data)
+
+        from .models import SolicitationTemplate, SolicitationDocument
+        template = SolicitationTemplate.objects.filter(
+            method__iexact=instance.method,
+            is_active=True,
+        ).first()
+        if template:
+            SolicitationDocument.objects.create(
+                solicitation=instance,
+                document_type=template.document_type,
+                file_path=template.template_content,
+            )
+
+        return instance
+
+    def update(self, instance, validated_data):
+        type_val = self.initial_data.get('type')
+        if type_val:
+            validated_data['method'] = type_val
+
+        procurement_method = self.initial_data.get('procurement_method')
+        if procurement_method:
+            validated_data['method'] = procurement_method
+
+        dept_name = self.initial_data.get('department')
+        if dept_name:
+            dept = Department.objects.filter(dept_name=dept_name).first()
+            if dept:
+                validated_data['department'] = dept
+
+        return super().update(instance, validated_data)

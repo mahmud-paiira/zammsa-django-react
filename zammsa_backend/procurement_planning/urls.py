@@ -1,0 +1,27 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('annual-plans/', views.AnnualProcurementPlanListView.as_view(), name='app-list'),
+    path('annual-plans/dashboard/', views.app_dashboard_view, name='app-dashboard'),
+    path('annual-plans/<uuid:pk>/', views.AnnualProcurementPlanDetailView.as_view(), name='app-detail'),
+    path('annual-plans/<uuid:pk>/submit/', views.app_submit_view, name='app-submit'),
+    path('annual-plans/<uuid:pk>/approve/', views.app_approve_view, name='app-approve'),
+    path('annual-plans/<uuid:pk>/reject/', views.app_reject_view, name='app-reject'),
+    path('annual-plans/<uuid:pk>/return/', views.app_return_view, name='app-return'),
+    path('annual-plans/<uuid:pk>/publish/', views.app_publish_view, name='app-publish'),
+    path('annual-plans/<uuid:pk>/compliance/', views.app_compliance_check_view, name='app-compliance'),
+    path('annual-plans/<uuid:pk>/consolidate/', views.app_consolidate_view, name='app-consolidate'),
+    path('annual-plans/<uuid:pk>/approval-trail/', views.app_approval_trail_view, name='app-approval-trail'),
+    path('annual-plans/<uuid:pk>/generate-gpn/', views.gpn_generate_view, name='app-generate-gpn'),
+    path('line-items/', views.APPLineItemListView.as_view(), name='app-line-item-list'),
+    path('line-items/<uuid:pk>/', views.APPLineItemDetailView.as_view(), name='app-line-item-detail'),
+    path('contract-plans/', views.ContractProcurementPlanListView.as_view(), name='cpp-list'),
+    path('contract-plans/<uuid:pk>/', views.ContractProcurementPlanDetailView.as_view(), name='cpp-detail'),
+    path('milestones/', views.ProcurementMilestoneListView.as_view(), name='milestone-list'),
+    path('milestones/<uuid:pk>/', views.ProcurementMilestoneDetailView.as_view(), name='milestone-detail'),
+    path('notices/', views.GeneralProcurementNoticeListView.as_view(), name='gpn-list'),
+    path('notices/<uuid:pk>/', views.GeneralProcurementNoticeDetailView.as_view(), name='gpn-detail'),
+    path('notices/<uuid:pk>/publish/', views.gpn_publish_view, name='gpn-publish'),
+    path('notices/<uuid:pk>/archive/', views.gpn_archive_view, name='gpn-archive'),
+]
