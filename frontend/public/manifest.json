@@ -1,0 +1,46 @@
+{
+  "short_name": "ZAMMSA Procurement",
+  "name": "ZAMMSA e-Procurement System - Zambia Medicines and Medical Supplies Agency",
+  "description": "ZAMMSA e-Procurement Portal - Manage tenders, bids, contracts, and procurements",
+  "categories": ["business", "government", "procurement"],
+  "lang": "en-ZM",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#008542",
+  "background_color": "#ffffff",
+  "scope": "/",
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Open Tenders",
+      "url": "/tenders",
+      "description": "View open tenders"
+    },
+    {
+      "name": "Vendor Dashboard",
+      "url": "/vendor/dashboard",
+      "description": "Vendor portal dashboard"
+    }
+  ]
+}
